@@ -109,6 +109,35 @@ lbox_tuple_format_tostring(struct lua_State *L)
 	return 1;
 }
 
+/*
+ * Update explicitly declared nullable fields with their effective runtime
+ * nullability, which also includes constraints imposed by indexes.
+ */
+static void
+tuple_format_update_nullable_fields(struct lua_State *L,
+				    struct tuple_format *format, int format_idx)
+{
+	uint32_t field_count = lua_objlen(L, format_idx);
+	assert(field_count <= tuple_format_field_count(format));
+	for (uint32_t i = 0; i < field_count; ++i) {
+		/* Get the field definition from the serialized format table. */
+		lua_rawgeti(L, format_idx, i + 1);
+		assert(lua_istable(L, -1));
+		struct tuple_field *field = tuple_format_field(format, i);
+		/* Preserve fields where is_nullable was omitted by the user. */
+		lua_getfield(L, -1, "is_nullable");
+		bool has_is_nullable = !lua_isnil(L, -1);
+		lua_pop(L, 1);
+		if (has_is_nullable) {
+			/* Use the effective nullable action. */
+			lua_pushboolean(L, action_is_nullable(
+						field->nullable_action));
+			lua_setfield(L, -2, "is_nullable");
+		}
+		lua_pop(L, 1);
+	}
+}
+
 int
 box_tuple_format_serialize_impl(struct lua_State *L,
 				struct tuple_format *format)
@@ -120,6 +149,7 @@ box_tuple_format_serialize_impl(struct lua_State *L,
 
 	const char *data = format->data;
 	luamp_decode(L, luaL_msgpack_default, &data);
+	tuple_format_update_nullable_fields(L, format, lua_gettop(L));
 	luaL_findtable(L, LUA_GLOBALSINDEX, "box.internal.tuple_format", 1);
 	lua_getfield(L, -1, "denormalize_format");
 	lua_remove(L, -2);
