@@ -239,6 +239,13 @@ local function normalize_default_func(func_name, error_prefix, level)
 end
 
 local function normalize_format(space_id, space_name, format, level)
+    -- A table with no sequence part can only be a single field
+    -- definition passed without the enclosing braces, e.g.
+    -- {name = 'a', type = 'unsigned'} instead of {{name = 'a', ...}}.
+    -- Wrap it into a one-element list.
+    if format[1] == nil and next(format) ~= nil then
+        format = {format}
+    end
     local result = {}
     for i, given in ipairs(format) do
         local field = {}
